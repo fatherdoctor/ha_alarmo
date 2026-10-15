@@ -2,6 +2,8 @@
 #   a refused arm command raises ServiceValidationError instead of returning quietly.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
 #   a same-mode arm re-watches closed bypassed sensors; alarmo.unbypass.
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
+#   option mode_switch_instant: switch between armed modes without exit delay.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -633,6 +635,11 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
         if self._state in const.ARM_MODES:
             # we are switching between arm modes
             self._revert_state = self._state
+            # option: no exit delay between two armed modes (while arming no
+            #   sensor can trigger, so the house would be unwatched for exit_time)
+            skip_delay = skip_delay or bool(
+                self._config.get(const.ATTR_MODE_SWITCH_INSTANT)
+            )
         else:
             self._revert_state = AlarmControlPanelState.DISARMED
             self.open_sensors = None

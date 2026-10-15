@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
+#   the mode_switch_instant option (default off).
 """Storage handler for Alarmo integration."""
 
 import time
@@ -85,6 +87,7 @@ class Config:
     code_format = attr.ib(type=str, default=CodeFormat.NUMBER)
     disarm_after_trigger = attr.ib(type=bool, default=False)
     ignore_blocking_sensors_after_trigger = attr.ib(type=bool, default=False)
+    mode_switch_instant = attr.ib(type=bool, default=False)
     master = attr.ib(type=MasterConfig, default=MasterConfig())
     mqtt = attr.ib(type=MqttConfig, default=MqttConfig())
 
@@ -359,6 +362,7 @@ class AlarmoStorage:
                 ignore_blocking_sensors_after_trigger=data["config"].get(
                     "ignore_blocking_sensors_after_trigger", False
                 ),
+                mode_switch_instant=data["config"].get("mode_switch_instant", False),
             )
 
             if "mqtt" in data["config"]:

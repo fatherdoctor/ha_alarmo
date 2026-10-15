@@ -1,5 +1,7 @@
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
 #   the alarmo.unbypass service.
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
+#   the mode_switch_instant option.
 """Store constants."""
 
 import datetime
@@ -118,6 +120,7 @@ ATTR_CAN_ARM = "can_arm"
 ATTR_CAN_DISARM = "can_disarm"
 ATTR_DISARM_AFTER_TRIGGER = "disarm_after_trigger"
 ATTR_IGNORE_BLOCKING_SENSORS_AFTER_TRIGGER = "ignore_blocking_sensors_after_trigger"
+ATTR_MODE_SWITCH_INSTANT = "mode_switch_instant"
 
 ATTR_REMOVE = "remove"
 ATTR_IS_OVERRIDE_CODE = "is_override_code"

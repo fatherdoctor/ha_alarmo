@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
+#   accept mode_switch_instant in the config API.
 """WebSocket handler and registration for Alarmo configuration management."""
 
 import voluptuous as vol
@@ -104,6 +106,7 @@ class AlarmoConfigView(HomeAssistantView):
                 ),
                 vol.Optional(const.ATTR_TRIGGER_TIME): cv.positive_int,
                 vol.Optional(const.ATTR_DISARM_AFTER_TRIGGER): cv.boolean,
+                vol.Optional(const.ATTR_MODE_SWITCH_INSTANT): cv.boolean,
                 vol.Optional(ATTR_MQTT): vol.Schema(
                     {
                         vol.Required(const.ATTR_ENABLED): cv.boolean,
