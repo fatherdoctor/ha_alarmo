@@ -6,6 +6,10 @@
 #   option mode_switch_instant: switch between armed modes without exit delay.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "skip-delay-refuses-in-pending":
 #   alarmo.skip_delay during the entry delay refuses instead of triggering.
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "failed-to-arm-every-refusal":
+#   an ignored same-mode arm and a refused skip_delay fire alarmo_failed_to_arm.
+# ha_alarmo fork change (Apache-2.0 section 4b), combined branch "patches":
+#   a refused unbypass and an unchanged same-mode re-arm fire too.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -585,6 +589,17 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                 "Alarm is already set to %s, ignoring command.",
                 arm_mode,
             )
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_COMMAND_IGNORED,
+                self.area_id,
+                {
+                    "state": self._state,
+                    "command": arm_mode.replace("armed", "arm"),
+                    const.ATTR_CONTEXT_ID: context_id,
+                },
+            )
             return False
 
         if not skip_code:
@@ -618,6 +633,17 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                     "Alarm is already set to %s and no bypassed sensor is closed, "
                     "ignoring command.",
                     arm_mode,
+                )
+                dispatcher_send(
+                    self.hass,
+                    "alarmo_event",
+                    const.EVENT_COMMAND_IGNORED,
+                    self.area_id,
+                    {
+                        "state": self._state,
+                        "command": arm_mode.replace("armed", "arm"),
+                        const.ATTR_CONTEXT_ID: context_id,
+                    },
                 )
                 return False
             dispatcher_send(
@@ -659,6 +685,14 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
         """Service handler for alarmo.skip_delay."""
         _LOGGER.debug("Service alarmo.skip_delay was called")
 
+        if self._state != AlarmControlPanelState.ARMING:
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_COMMAND_NOT_ALLOWED,
+                self.area_id,
+                {"state": self._state, "command": const.COMMAND_SKIP_DELAY},
+            )
         if self._state == AlarmControlPanelState.PENDING:
             # skipping the entry delay would trigger the alarm at once; whoever
             #   wants that calls alarm_control_panel.alarm_trigger explicitly
@@ -679,6 +713,13 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
         _LOGGER.debug("Service alarmo.unbypass was called")
 
         if self._state not in const.ARM_MODES:
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_COMMAND_NOT_ALLOWED,
+                self.area_id,
+                {"state": self._state, "command": const.COMMAND_UNBYPASS},
+            )
             raise ServiceValidationError(
                 f"Entity has state '{self._state}', "
                 "but must be armed to un-bypass sensors."
