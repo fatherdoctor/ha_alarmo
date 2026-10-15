@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "failed-to-arm-every-refusal":
+#   EVENT_COMMAND_IGNORED and COMMAND_SKIP_DELAY.
 """Store constants."""
 
 import datetime
@@ -76,6 +78,7 @@ COMMAND_ARM_HOME = "arm_home"
 COMMAND_ARM_CUSTOM_BYPASS = "arm_custom_bypass"
 COMMAND_ARM_VACATION = "arm_vacation"
 COMMAND_DISARM = "disarm"
+COMMAND_SKIP_DELAY = "skip_delay"
 
 COMMANDS = [
     COMMAND_DISARM,
@@ -93,6 +96,7 @@ EVENT_ENTRY = "entry"
 EVENT_TRIGGER = "trigger"
 EVENT_FAILED_TO_ARM = "failed_to_arm"
 EVENT_COMMAND_NOT_ALLOWED = "command_not_allowed"
+EVENT_COMMAND_IGNORED = "command_ignored"
 EVENT_INVALID_CODE_PROVIDED = "invalid_code_provided"
 EVENT_NO_CODE_PROVIDED = "no_code_provided"
 EVENT_TRIGGER_TIME_EXPIRED = "trigger_time_expired"

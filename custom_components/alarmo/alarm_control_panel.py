@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "failed-to-arm-every-refusal":
+#   an ignored same-mode arm and a refused skip_delay fire alarmo_failed_to_arm.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -561,6 +563,17 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                 "Alarm is already set to %s, ignoring command.",
                 arm_mode,
             )
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_COMMAND_IGNORED,
+                self.area_id,
+                {
+                    "state": self._state,
+                    "command": arm_mode.replace("armed", "arm"),
+                    const.ATTR_CONTEXT_ID: context_id,
+                },
+            )
             return False
 
         if not skip_code:
@@ -610,6 +623,13 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
             AlarmControlPanelState.ARMING,
             AlarmControlPanelState.PENDING,
         ]:
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_COMMAND_NOT_ALLOWED,
+                self.area_id,
+                {"state": self._state, "command": const.COMMAND_SKIP_DELAY},
+            )
             raise HomeAssistantError(
                 f"Entity has state '{self._state}', "
                 f"but must be in state '{AlarmControlPanelState.ARMING}' "

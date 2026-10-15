@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "failed-to-arm-every-refusal":
+#   an ignored command fires alarmo_failed_to_arm (reason already_armed).
 """fire events in HA for use with automations."""
 
 import logging
@@ -43,12 +45,14 @@ class EventHandler:
         if event in [
             const.EVENT_FAILED_TO_ARM,
             const.EVENT_COMMAND_NOT_ALLOWED,
+            const.EVENT_COMMAND_IGNORED,
             const.EVENT_INVALID_CODE_PROVIDED,
             const.EVENT_NO_CODE_PROVIDED,
         ]:
             reasons = {
                 const.EVENT_FAILED_TO_ARM: "open_sensors",
                 const.EVENT_COMMAND_NOT_ALLOWED: "not_allowed",
+                const.EVENT_COMMAND_IGNORED: "already_armed",
                 const.EVENT_INVALID_CODE_PROVIDED: "invalid_code",
                 const.EVENT_NO_CODE_PROVIDED: "invalid_code",
             }
