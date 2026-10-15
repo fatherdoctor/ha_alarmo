@@ -4,6 +4,8 @@
 #   a same-mode arm re-watches closed bypassed sensors; alarmo.unbypass.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
 #   option mode_switch_instant: switch between armed modes without exit delay.
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "skip-delay-refuses-in-pending":
+#   alarmo.skip_delay during the entry delay refuses instead of triggering.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -657,20 +659,20 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
         """Service handler for alarmo.skip_delay."""
         _LOGGER.debug("Service alarmo.skip_delay was called")
 
-        if self._state not in [
-            AlarmControlPanelState.ARMING,
-            AlarmControlPanelState.PENDING,
-        ]:
+        if self._state == AlarmControlPanelState.PENDING:
+            # skipping the entry delay would trigger the alarm at once; whoever
+            #   wants that calls alarm_control_panel.alarm_trigger explicitly
+            raise ServiceValidationError(
+                f"{self.entity_id} is in its entry delay ('{self._state}'); "
+                "skip_delay would trigger the alarm. "
+                "Use alarm_control_panel.alarm_trigger to trigger it now."
+            )
+        if self._state != AlarmControlPanelState.ARMING:
             raise HomeAssistantError(
                 f"Entity has state '{self._state}', "
-                f"but must be in state '{AlarmControlPanelState.ARMING}' "
-                f"or '{AlarmControlPanelState.PENDING}'."
+                f"but must be in state '{AlarmControlPanelState.ARMING}'."
             )
-
-        elif self._state == AlarmControlPanelState.ARMING:
-            self.async_arm(self.arm_mode, skip_delay=True)
-        elif self._state == AlarmControlPanelState.PENDING:
-            self.async_trigger(entry_delay=0)
+        self.async_arm(self.arm_mode, skip_delay=True)
 
     async def async_service_unbypass_handler(self, sensors=None):
         """Service handler for alarmo.unbypass."""

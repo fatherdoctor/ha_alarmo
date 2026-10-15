@@ -42,7 +42,7 @@
     },
     "skip_delay": {
       "name": "Skip Delay",
-      "description": "Skip the remainder of the exit/entry delay and proceed directly to the next state. Only has effect whilst the alarm is in arming or pending state.",
+      "description": "Skip the remainder of the exit delay and arm now. Only has effect while the alarm is arming; during the entry delay (pending) it is refused, use alarm_control_panel.alarm_trigger to trigger the alarm at once.",
       "fields": {
         "entity_id": {
           "name": "Entity ID",
