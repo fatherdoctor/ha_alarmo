@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
+#   the unbypass service.
 
 arm:
   fields:
@@ -61,6 +63,21 @@ skip_delay:
         entity:
           integration: alarmo
           domain: alarm_control_panel
+unbypass:
+  fields:
+    entity_id:
+      example: "alarm_control_panel.alarm"
+      required: true
+      selector:
+        entity:
+          integration: alarmo
+          domain: alarm_control_panel
+    sensors:
+      example: "binary_sensor.back_door"
+      required: false
+      selector:
+        entity:
+          multiple: true
 enable_user:
   fields:
     name:

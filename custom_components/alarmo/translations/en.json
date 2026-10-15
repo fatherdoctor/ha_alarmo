@@ -69,6 +69,20 @@
           "description": "Name of the user to disable."
         }
       }
+    },
+    "unbypass": {
+      "name": "Unbypass",
+      "description": "Watch bypassed sensors again while the alarm stays armed. Only sensors that are closed now are watched again; open ones stay bypassed. Returns the sensors that were rejoined and the ones still bypassed.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity ID",
+          "description": "Armed alarm entity whose bypassed sensors should be watched again."
+        },
+        "sensors": {
+          "name": "Sensors",
+          "description": "Only these bypassed sensors (default: all bypassed sensors)."
+        }
+      }
     }
   },
   "selector": {
