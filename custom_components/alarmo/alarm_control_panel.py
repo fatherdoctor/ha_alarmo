@@ -1,3 +1,5 @@
+# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+#   a refused arm command raises ServiceValidationError instead of returning quietly.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -19,7 +21,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.helpers import entity_platform
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -555,7 +557,12 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                     const.ATTR_CONTEXT_ID: context_id,
                 },
             )
-            return False
+            # tell the caller: a script stops (or continues with
+            # continue_on_error) and the frontend shows the reason
+            raise ServiceValidationError(
+                f"Cannot arm {self.entity_id} ({arm_mode}) "
+                f"while it is in state '{self._state}'."
+            )
         elif self._state in const.ARM_MODES and self._arm_mode == arm_mode:
             _LOGGER.debug(
                 "Alarm is already set to %s, ignoring command.",

@@ -1,3 +1,5 @@
+# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+#   a refused arm command is logged here instead of raising out of the MQTT callback.
 """Class to handle MQTT integration."""
 
 import json
@@ -9,6 +11,7 @@ from homeassistant.core import (
 )
 from homeassistant.util import slugify
 from homeassistant.components import mqtt
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.json import JSONEncoder
 from homeassistant.components.mqtt import (
     DOMAIN as ATTR_MQTT,
@@ -295,25 +298,29 @@ class MqttHandler:
             command,
         )
 
-        if command == command_payloads[const.COMMAND_DISARM]:
-            entity.alarm_disarm(code, skip_code=skip_code)
-        elif command == command_payloads[const.COMMAND_ARM_AWAY]:
-            await entity.async_alarm_arm_away(
-                code, skip_code, bypass_open_sensors, skip_delay
-            )
-        elif command == command_payloads[const.COMMAND_ARM_NIGHT]:
-            await entity.async_alarm_arm_night(
-                code, skip_code, bypass_open_sensors, skip_delay
-            )
-        elif command == command_payloads[const.COMMAND_ARM_HOME]:
-            await entity.async_alarm_arm_home(
-                code, skip_code, bypass_open_sensors, skip_delay
-            )
-        elif command == command_payloads[const.COMMAND_ARM_CUSTOM_BYPASS]:
-            await entity.async_alarm_arm_custom_bypass(
-                code, skip_code, bypass_open_sensors, skip_delay
-            )
-        elif command == command_payloads[const.COMMAND_ARM_VACATION]:
-            await entity.async_alarm_arm_vacation(
-                code, skip_code, bypass_open_sensors, skip_delay
-            )
+        try:
+            if command == command_payloads[const.COMMAND_DISARM]:
+                entity.alarm_disarm(code, skip_code=skip_code)
+            elif command == command_payloads[const.COMMAND_ARM_AWAY]:
+                await entity.async_alarm_arm_away(
+                    code, skip_code, bypass_open_sensors, skip_delay
+                )
+            elif command == command_payloads[const.COMMAND_ARM_NIGHT]:
+                await entity.async_alarm_arm_night(
+                    code, skip_code, bypass_open_sensors, skip_delay
+                )
+            elif command == command_payloads[const.COMMAND_ARM_HOME]:
+                await entity.async_alarm_arm_home(
+                    code, skip_code, bypass_open_sensors, skip_delay
+                )
+            elif command == command_payloads[const.COMMAND_ARM_CUSTOM_BYPASS]:
+                await entity.async_alarm_arm_custom_bypass(
+                    code, skip_code, bypass_open_sensors, skip_delay
+                )
+            elif command == command_payloads[const.COMMAND_ARM_VACATION]:
+                await entity.async_alarm_arm_vacation(
+                    code, skip_code, bypass_open_sensors, skip_delay
+                )
+        except ServiceValidationError as err:
+            # the refusal is already logged and fired as alarmo_failed_to_arm
+            _LOGGER.debug("MQTT command %s refused: %s", command, err)
