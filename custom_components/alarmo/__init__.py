@@ -1,3 +1,5 @@
+# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+#   a refused arm from a push action is logged instead of raising out of the listener.
 """The Alarmo Integration."""
 
 import re
@@ -17,6 +19,7 @@ from homeassistant.const import (
 )
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.service import (
     async_register_admin_service,
@@ -449,20 +452,28 @@ class AlarmoCoordinator(DataUpdateCoordinator):
                 )
                 return
 
-            if action == const.EVENT_ACTION_FORCE_ARM:
-                _LOGGER.info("Received request for force arming")
-                await alarm_entity.async_handle_arm_request(
-                    arm_mode, skip_code=True, bypass_open_sensors=True
-                )
-            elif action == const.EVENT_ACTION_RETRY_ARM:
-                _LOGGER.info("Received request for retry arming")
-                await alarm_entity.async_handle_arm_request(arm_mode, skip_code=True)
-            else:
-                _LOGGER.info(
-                    "Received request for arming with mode %s",
-                    arm_mode,
-                )
-                await alarm_entity.async_handle_arm_request(arm_mode, skip_code=True)
+            try:
+                if action == const.EVENT_ACTION_FORCE_ARM:
+                    _LOGGER.info("Received request for force arming")
+                    await alarm_entity.async_handle_arm_request(
+                        arm_mode, skip_code=True, bypass_open_sensors=True
+                    )
+                elif action == const.EVENT_ACTION_RETRY_ARM:
+                    _LOGGER.info("Received request for retry arming")
+                    await alarm_entity.async_handle_arm_request(
+                        arm_mode, skip_code=True
+                    )
+                else:
+                    _LOGGER.info(
+                        "Received request for arming with mode %s",
+                        arm_mode,
+                    )
+                    await alarm_entity.async_handle_arm_request(
+                        arm_mode, skip_code=True
+                    )
+            except ServiceValidationError as err:
+                # the refusal is already logged and fired as alarmo_failed_to_arm
+                _LOGGER.info("Push action %s refused: %s", action, err)
 
         self._subscriptions.append(
             self.hass.bus.async_listen(const.PUSH_EVENT, async_handle_push_event)
