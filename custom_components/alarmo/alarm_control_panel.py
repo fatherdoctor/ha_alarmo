@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
+#   a same-mode arm re-watches closed bypassed sensors; alarmo.unbypass.
 """Initialization of Alarmo alarm_control_panel platform."""
 
 import logging
@@ -9,6 +11,7 @@ from abc import abstractmethod
 import homeassistant.util.dt as dt_util
 from homeassistant.core import (
     HomeAssistant,
+    SupportsResponse,
     callback,
 )
 from homeassistant.util import slugify
@@ -19,7 +22,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.helpers import entity_platform
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -137,6 +140,12 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
         const.SERVICE_SKIP_DELAY,
         const.SERVICE_SKIP_DELAY_SCHEMA,
         "async_service_skip_delay_handler",
+    )
+    platform.async_register_entity_service(
+        const.SERVICE_UNBYPASS,
+        const.SERVICE_UNBYPASS_SCHEMA,
+        "async_service_unbypass_handler",
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
 
@@ -511,7 +520,7 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
             context_id=context_id,
         )
 
-    async def async_handle_arm_request(self, arm_mode, **kwargs):
+    async def async_handle_arm_request(self, arm_mode, **kwargs):  # noqa: PLR0912
         """Check if conditions are met for starting arm procedure."""
         code = kwargs.get(const.CONF_CODE, "")
         skip_code = kwargs.get("skip_code", False)
@@ -556,7 +565,11 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                 },
             )
             return False
-        elif self._state in const.ARM_MODES and self._arm_mode == arm_mode:
+        elif (
+            self._state in const.ARM_MODES
+            and self._arm_mode == arm_mode
+            and not self.bypassed_sensors
+        ):
             _LOGGER.debug(
                 "Alarm is already set to %s, ignoring command.",
                 arm_mode,
@@ -585,6 +598,30 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
                 bypass_open_sensors = True
         else:
             self._changed_by = None
+
+        if self._state in const.ARM_MODES and self._arm_mode == arm_mode:
+            # same mode with bypassed sensors: watch the ones that are closed now
+            rejoined = self.async_unbypass()
+            if not rejoined:
+                _LOGGER.debug(
+                    "Alarm is already set to %s and no bypassed sensor is closed, "
+                    "ignoring command.",
+                    arm_mode,
+                )
+                return False
+            dispatcher_send(
+                self.hass,
+                "alarmo_event",
+                const.EVENT_ARM,
+                self.area_id,
+                {
+                    "arm_mode": arm_mode,
+                    "delay": 0,
+                    "rejoined": rejoined,
+                    const.ATTR_CONTEXT_ID: context_id,
+                },
+            )
+            return True
 
         if self._state in const.ARM_MODES:
             # we are switching between arm modes
@@ -620,6 +657,26 @@ class AlarmoBaseEntity(AlarmControlPanelEntity, RestoreEntity):
             self.async_arm(self.arm_mode, skip_delay=True)
         elif self._state == AlarmControlPanelState.PENDING:
             self.async_trigger(entry_delay=0)
+
+    async def async_service_unbypass_handler(self, sensors=None):
+        """Service handler for alarmo.unbypass."""
+        _LOGGER.debug("Service alarmo.unbypass was called")
+
+        if self._state not in const.ARM_MODES:
+            raise ServiceValidationError(
+                f"Entity has state '{self._state}', "
+                "but must be armed to un-bypass sensors."
+            )
+        rejoined = self.async_unbypass(sensors)
+        return {
+            "rejoined": rejoined,
+            "still_bypassed": list(self.bypassed_sensors or []),
+        }
+
+    @abstractmethod
+    @callback
+    def async_unbypass(self, sensors: list[str] | None = None) -> list[str]:
+        """Watch bypassed sensors again if they are closed now; return them."""
 
     @abstractmethod
     @callback
@@ -871,6 +928,37 @@ class AlarmoAreaEntity(AlarmoBaseEntity):
         dispatcher_send(
             self.hass, "alarmo_state_updated", self.area_id, old_state, state
         )
+
+    @callback
+    def async_unbypass(self, sensors: list[str] | None = None) -> list[str]:
+        """Watch bypassed sensors again if they are closed now; return them."""
+        if self._state not in const.ARM_MODES or not self.bypassed_sensors:
+            return []
+        candidates = [
+            entity
+            for entity in self.bypassed_sensors
+            if sensors is None or entity in sensors
+        ]
+        sensor_handler = self.hass.data[const.DOMAIN]["sensor_handler"]
+        rejoined = sensor_handler.sensors_ready_to_rejoin(candidates)
+        if not rejoined:
+            return []
+
+        self.bypassed_sensors = [
+            entity for entity in self.bypassed_sensors if entity not in rejoined
+        ]
+        _LOGGER.info(
+            "Alarm '%s' watches %s again (no longer bypassed).",
+            self.name,
+            ", ".join(rejoined),
+        )
+        self.schedule_update_ha_state()
+        # rebuild the sensor listener so that the rejoined sensors can trigger
+        sensor_handler.async_watch_sensor_states(self.area_id, self._state, self._state)
+        master = self.hass.data[const.DOMAIN]["master"]
+        if master:
+            master.async_update_bypassed_sensors()
+        return rejoined
 
     def async_arm_failure(self, open_sensors: dict, context_id=None):
         """Handle arm failure."""
@@ -1537,6 +1625,24 @@ class AlarmoMasterEntity(AlarmoBaseEntity):
                     const.ATTR_CONTEXT_ID: context_id,
                 },
             )
+
+    @callback
+    def async_update_bypassed_sensors(self):
+        """Refresh the combined list of bypassed sensors of all areas."""
+        bypassed_sensors = []
+        for item in self.hass.data[const.DOMAIN]["areas"].values():
+            if item.bypassed_sensors:
+                bypassed_sensors.extend(item.bypassed_sensors)
+        self.bypassed_sensors = bypassed_sensors
+        self.schedule_update_ha_state()
+
+    @callback
+    def async_unbypass(self, sensors: list[str] | None = None) -> list[str]:
+        """Watch bypassed sensors of all areas again if they are closed now."""
+        rejoined = []
+        for item in self.hass.data[const.DOMAIN]["areas"].values():
+            rejoined.extend(item.async_unbypass(sensors))
+        return rejoined
 
     def async_arm_failure(self, open_sensors: dict, context_id=None):
         """Handle arm failure."""

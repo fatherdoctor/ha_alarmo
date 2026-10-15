@@ -1,3 +1,5 @@
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
+#   SensorHandler.sensors_ready_to_rejoin for the same-mode re-arm.
 """Sensor handling for Alarmo integration."""
 
 import logging
@@ -297,6 +299,17 @@ class SensorHandler:
                 entities.append(entity)
 
         return entities
+
+    def sensors_ready_to_rejoin(self, entities: list[str]) -> list[str]:
+        """Return the bypassed sensors that are closed now and may be watched again."""
+        ready = []
+        for entity in entities:
+            config = self._config.get(entity)
+            if not config or not config["enabled"]:
+                continue
+            if parse_sensor_state(self.hass.states.get(entity)) == STATE_CLOSED:
+                ready.append(entity)
+        return ready
 
     def validate_arming_event(
         self, area_id: str, target_state: str | None = None, **kwargs
