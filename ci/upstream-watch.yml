@@ -1,0 +1,169 @@
+# Upstream watch for a patch fork (fatherdoctor; David 2026-10-15: "one we should implement for all forks").
+# Daily, and from the Actions tab: when the upstream repo publishes a release newer than the version our patches are
+# built on, open ONE issue (deduplicated by title) with the release notes, the compare link, each patch branch's
+# rebase result and the test result with the patches applied. It never pushes, tags, releases or opens a PR: the
+# issue is the trigger for a person (or a builder run) to rebase the patches.
+# Generic: a new fork copies this file unchanged and edits only the `env:` block. See docs/upstream-watch.md.
+# Lives on the fork's DEFAULT branch (scheduled workflows only run there), as .github/workflows/upstream-watch.yml.
+name: Upstream watch
+
+on:
+  schedule:
+    - cron: "17 11 * * *"   # daily, 11:17 UTC (early morning in the US)
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Test against this upstream tag/branch instead of the latest release (e.g. main). Empty = latest release."
+        required: false
+        default: ""
+      dry_run:
+        description: "Report in the run summary only; do not open an issue."
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+env:
+  # ---- the only part a new fork edits ----
+  UPSTREAM_REPO: nielsfaber/alarmo                     # owner/repo of the upstream
+  TAG_PREFIX: "v"                                      # upstream tags look like v1.10.19
+  PATCHES_BRANCH: patches                              # our combined branch; its version file names our base
+  VERSION_FILE: custom_components/alarmo/manifest.json # JSON file with a "version" field on PATCHES_BRANCH
+  BASE_PARTS: "3"                                      # our version is upstream's + one more number: 1.10.19.1 -> 1.10.19
+  PATCH_BRANCHES: >-
+    refuse-raises-error same-mode-rearm mode-switch-instant skip-delay-refuses-in-pending failed-to-arm-every-refusal
+  TEST_CMD: "uv run --frozen pytest -q -p no:cacheprovider tests"   # run from the repo root
+  LABEL: upstream-release
+  # ----------------------------------------
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Compare, rebase, test, report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_REF: ${{ inputs.upstream_ref }}
+          INPUT_DRY: ${{ inputs.dry_run }}
+        run: |
+          set -uo pipefail
+          git config user.name "upstream-watch"; git config user.email "upstream-watch@users.noreply.github.com"
+          out="$RUNNER_TEMP/report.md"; : > "$out"
+          say() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+
+          # 1. Our base version: the patches branch's version minus the fork's own trailing number.
+          git fetch -q origin "$PATCHES_BRANCH" $PATCH_BRANCHES || { say "Cannot fetch our branches"; exit 1; }
+          ours=$(git show "origin/$PATCHES_BRANCH:$VERSION_FILE" | jq -r .version) || { say "No version in $VERSION_FILE"; exit 1; }
+          base=$(echo "$ours" | cut -d. -f1-"$BASE_PARTS")
+
+          # 2. Upstream's latest release (or the ref asked for by hand).
+          if [ -n "${INPUT_REF:-}" ]; then
+            tag="$INPUT_REF"; notes="(manual run against $INPUT_REF; no release notes)"; rel_url="https://github.com/$UPSTREAM_REPO/tree/$INPUT_REF"
+          else
+            rel=$(gh api "repos/$UPSTREAM_REPO/releases/latest") || { say "Cannot read upstream's latest release"; exit 1; }
+            tag=$(echo "$rel" | jq -r .tag_name); notes=$(echo "$rel" | jq -r '.body // ""' | head -c 20000); rel_url=$(echo "$rel" | jq -r .html_url)
+          fi
+          up="${tag#"$TAG_PREFIX"}"
+          say "Our patches ($PATCHES_BRANCH) are version $ours, built on upstream $base. Upstream: $tag."
+
+          if [ -z "${INPUT_REF:-}" ]; then
+            newest=$(printf '%s\n%s\n' "$base" "$up" | sort -V | tail -1)
+            if [ "$up" = "$base" ] || [ "$newest" = "$base" ]; then say "Up to date: nothing to do."; exit 0; fi
+          fi
+          title="Upstream $tag released - rebase patches"
+
+          # 3. One issue per release: an existing issue with this exact title (open or closed) ends the run.
+          if [ "${INPUT_DRY:-false}" != "true" ]; then
+            found=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --label "$LABEL" --limit 200 --json title \
+                    | jq --arg t "$title" '[.[] | select(.title == $t)] | length') \
+                    || { say "Cannot list issues (are Issues enabled on this fork?)"; exit 1; }
+            if [ "${found:-0}" != "0" ]; then say "Issue \"$title\" already exists: nothing to do."; exit 0; fi
+          fi
+
+          # 4. Rebase each patch branch onto the upstream tag, in the runner only. Never pushed.
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          if git ls-remote --exit-code --tags upstream "refs/tags/$tag" >/dev/null; then
+            git fetch -q --no-tags upstream "refs/tags/$tag:refs/tags/$tag"; target="refs/tags/$tag"
+          else
+            git fetch -q --no-tags upstream "$tag"; target=FETCH_HEAD
+          fi
+          target=$(git rev-parse "$target^{commit}")
+          rebase_one() {   # $1 = branch; prints "applies cleanly" or the conflicting files
+            git checkout -q -B "try-$1" "origin/$1"
+            if git rebase -q "$target" >/dev/null 2>&1; then echo "applies cleanly"; return 0; fi
+            files=$(git diff --name-only --diff-filter=U | sed 's/^/`/; s/$/`/' | paste -sd, -)
+            git rebase --abort >/dev/null 2>&1; echo "CONFLICTS: ${files:-(could not list)}"; return 1
+          }
+          # The combined branch is built by MERGING the patch branches, so it is checked the way it is updated:
+          # merge the new upstream into it. (A plain rebase flattens its merges and loses their resolutions, which
+          # reports conflicts that a real update would not have.) Leaves the merged tree checked out on success.
+          merge_combined() {
+            git checkout -q -B try-combined "origin/$PATCHES_BRANCH"
+            if git merge -q --no-edit "$target" >/dev/null 2>&1; then echo "merges cleanly"; return 0; fi
+            files=$(git diff --name-only --diff-filter=U | sed 's/^/`/; s/$/`/' | paste -sd, -)
+            git merge --abort >/dev/null 2>&1; echo "CONFLICTS: ${files:-(could not list)}"; return 1
+          }
+          {
+            echo "| Branch | Onto \`$tag\` |"; echo "|---|---|"
+            for b in $PATCH_BRANCHES; do echo "| \`$b\` (rebase) | $(rebase_one "$b") |"; done
+            echo "| \`$PATCHES_BRANCH\` (merge \`$tag\` in) | $(merge_combined) |"
+          } > "$RUNNER_TEMP/rebase.md"
+
+          # 5. Tests: upstream alone, then with our combined patches (only if they rebased cleanly). A failing run is
+          #    re-run once and reported "flaky" if the second passes (upstream's suite has known flaky tests).
+          run_tests() {   # $1 = label; current checkout
+            log="$RUNNER_TEMP/test-$1.log"
+            if timeout 900 sh -c "$TEST_CMD" >"$log" 2>&1; then echo "pass ($(tail -1 "$log" | tr -d '=' | xargs))"; return; fi
+            first=$(grep -E '^(FAILED|ERROR) ' "$log" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' -)
+            if timeout 900 sh -c "$TEST_CMD" >"$log.2" 2>&1; then echo "flaky: failed once, passed on a re-run (${first:-no test named})"; return; fi
+            echo "FAIL: $(grep -E '^(FAILED|ERROR) ' "$log.2" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' -) ($(tail -1 "$log.2" | tr -d '=' | xargs))"
+          }
+          git checkout -q --detach "$target"; t_up=$(run_tests upstream)
+          if merge_combined >/dev/null; then
+            t_ours=$(run_tests patched)
+          else
+            t_ours="not run: \`$PATCHES_BRANCH\` does not merge cleanly"
+          fi
+
+          # 6. The report.
+          {
+            echo "Upstream [$UPSTREAM_REPO]($rel_url) released **$tag**. Our patches (\`$PATCHES_BRANCH\`, version \`$ours\`) are built on \`$base\`."
+            echo
+            echo "Compare: https://github.com/$UPSTREAM_REPO/compare/$TAG_PREFIX$base...$tag"
+            echo
+            echo "### Patch branches"
+            cat "$RUNNER_TEMP/rebase.md"
+            echo
+            echo "### Tests (\`$TEST_CMD\`)"
+            echo "- upstream \`$tag\` alone: $t_up"
+            echo "- upstream \`$tag\` + \`$PATCHES_BRANCH\`: $t_ours"
+            echo
+            echo "### Upstream release notes"
+            echo "$notes"
+            echo
+            echo "---"
+            echo "Opened by the upstream-watch workflow ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). It pushed nothing, tagged nothing and opened no PR. Next: rebase the patch branches onto \`$tag\`, merge \`$tag\` into \`$PATCHES_BRANCH\`, bump \`$VERSION_FILE\` to \`$up.1\`, re-run the tests, review."
+          } > "$out"
+          cat "$out" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${INPUT_DRY:-false}" = "true" ] || [ -n "${INPUT_REF:-}" ]; then
+            say "Dry run or manual ref: no issue opened."; exit 0
+          fi
+          gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A newer upstream release to rebase onto" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$LABEL" --body-file "$out" \
+            || { say "Could not open the issue (are Issues enabled on this fork?)"; exit 1; }
