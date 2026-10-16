@@ -21,6 +21,10 @@ same-mode arm whose bypassed sensors are all still open fires `already_armed`. `
 Tests: each patch adds one file under `tests/` in upstream's style; `tests/test_patches_combined.py` walks all five
 together. `uv run pytest tests` passes 134 tests on this branch (108 upstream + 26).
 
+Dev checks (DEVELOPMENT.md: `uv run pre-commit run --all-files`, `uv run pytest tests`): every patch branch and this
+branch pass on the files they touch; the only hook failure is upstream's own (ruff-format on two v1.10.19 test files).
+Results and the draft upstream issues (not posted): `docs/upstream/alarmo-issues-draft.md`.
+
 Not changed: the domain (`alarmo`), the frontend bundle, the storage format (one new optional key,
 `mode_switch_instant`, which upstream ignores), MQTT topics and payloads.
 
