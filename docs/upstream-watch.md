@@ -80,4 +80,5 @@ Coordinator: `gh workflow disable stale.yaml -R fatherdoctor/ha_alarmo` and `gh 
   one frontend-only commit past v1.10.19. The cases checked were up to date, older, duplicate issue, a newer
   release, failing tests and flaky tests. The first draft rebased the combined branch, and it
   reported a false conflict in `alarm_control_panel.py`. That false conflict is why the combined branch is now
-  merged instead.
+  merged instead. The real test command on that run: upstream `main` alone 108 passed; with `patches` merged in, 134
+  passed.
