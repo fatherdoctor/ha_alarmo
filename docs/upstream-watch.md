@@ -117,8 +117,8 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
 - **U3 (correctness of the issue text) upstream's release notes are pasted raw.** Two effects on our issue: a bare
   `#1234` in upstream's notes autolinks to OUR issue or PR 1234, not upstream's, and any `@user` in the notes notifies
   that user from our repo. Rewrite `#N` to `nielsfaber/alarmo#N` (one `sed -E 's/(^|[^A-Za-z0-9\/])#([0-9]+)/\1'"$UPSTREAM_REPO"'#\2/g'`,
-  which GitHub autolinks to upstream) and break mentions (`s/@([A-Za-z0-9-])/@​\1/g` or put the notes in a
-  fenced block), then fold the notes into `<details><summary>Upstream release notes</summary>` so the branch table and
+  which GitHub autolinks to upstream) and break mentions (`sed 's/@\([A-Za-z0-9]\)/@\&#8203;\1/g'`, a zero-width entity
+  GitHub renders, or put the notes in a fenced block), then fold the notes into `<details><summary>Upstream release notes</summary>` so the branch table and
   test lines stay above the fold. Also take the 20,000-character cut in jq (`.body // "" | .[:20000]`) instead of
   `head -c`, which can split a multibyte character and give `gh` an invalid body.
 - **U4 (defense in depth) validate the ref names you pass to git.** `tag` comes from upstream's API and `INPUT_REF`
