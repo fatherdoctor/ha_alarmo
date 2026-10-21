@@ -25,6 +25,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write   # only for the last step: re-enable this workflow so GitHub's 60-day idle rule never switches it off
 
 concurrency:
   group: upstream-watch
@@ -46,14 +47,15 @@ env:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60   # up to four test runs of at most 10 minutes each, plus setup and the rebases
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false   # the fork is public: fetching needs no token, so none is left in .git/config
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e   # v6.8.0
 
       - name: Compare, rebase, test, report
         env:
@@ -61,10 +63,15 @@ jobs:
           INPUT_REF: ${{ inputs.upstream_ref }}
           INPUT_DRY: ${{ inputs.dry_run }}
         run: |
-          set -uo pipefail
+          # Explicit errexit: Actions already runs this as `bash -e`, but a run outside Actions (the offline check)
+          # does not, and there a failed `git fetch upstream` would leave FETCH_HEAD on our own branch: a false green.
+          set -euo pipefail
           git config user.name "upstream-watch"; git config user.email "upstream-watch@users.noreply.github.com"
           out="$RUNNER_TEMP/report.md"; : > "$out"
           say() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          # A ref name from upstream's API or the dispatch form goes to git as a bare argument: refuse anything that
+          # could be read as an option (a leading `-`) or is not a plain tag/branch name.
+          check_ref() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { say "Refusing odd ref name '$1'"; exit 1; }; }
 
           # 1. Our base version: the patches branch's version minus the fork's own trailing number.
           git fetch -q origin "$PATCHES_BRANCH" $PATCH_BRANCHES || { say "Cannot fetch our branches"; exit 1; }
@@ -73,10 +80,18 @@ jobs:
 
           # 2. Upstream's latest release (or the ref asked for by hand).
           if [ -n "${INPUT_REF:-}" ]; then
+            check_ref "$INPUT_REF"
             tag="$INPUT_REF"; notes="(manual run against $INPUT_REF; no release notes)"; rel_url="https://github.com/$UPSTREAM_REPO/tree/$INPUT_REF"
           else
             rel=$(gh api "repos/$UPSTREAM_REPO/releases/latest") || { say "Cannot read upstream's latest release"; exit 1; }
-            tag=$(echo "$rel" | jq -r .tag_name); notes=$(echo "$rel" | jq -r '.body // ""' | head -c 20000); rel_url=$(echo "$rel" | jq -r .html_url)
+            tag=$(echo "$rel" | jq -r .tag_name); check_ref "$tag"; rel_url=$(echo "$rel" | jq -r .html_url)
+            # Cut in jq (characters, never half a multibyte one). Then make the notes safe to paste into OUR repo:
+            # `#123` -> `owner/repo#123` (a bare one would link to our issue 123), then break `@user` mentions with a
+            # zero-width space entity so nobody upstream is notified from here. A `#` right after `&` is an HTML entity
+            # (upstream's own `&#39;`, or the `&#8203;` added next), never an issue number, so it is left alone.
+            notes=$(echo "$rel" | jq -r '.body // "" | .[:20000]' \
+                    | sed -E 's%(^|[^A-Za-z0-9/&])#([0-9]+)%\1'"$UPSTREAM_REPO"'#\2%g' \
+                    | sed -E 's/@([A-Za-z0-9])/@\&#8203;\1/g')
           fi
           up="${tag#"$TAG_PREFIX"}"
           say "Our patches ($PATCHES_BRANCH) are version $ours, built on upstream $base. Upstream: $tag."
@@ -89,7 +104,8 @@ jobs:
 
           # 3. One issue per release: an existing issue with this exact title (open or closed) ends the run.
           if [ "${INPUT_DRY:-false}" != "true" ]; then
-            found=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --label "$LABEL" --limit 200 --json title \
+            # Matched on the exact title only, not the label: a person who removes the label must not get a new issue.
+            found=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 1000 --json title \
                     | jq --arg t "$title" '[.[] | select(.title == $t)] | length') \
                     || { say "Cannot list issues (are Issues enabled on this fork?)"; exit 1; }
             if [ "${found:-0}" != "0" ]; then say "Issue \"$title\" already exists: nothing to do."; exit 0; fi
@@ -120,22 +136,24 @@ jobs:
           }
           {
             echo "| Branch | Onto \`$tag\` |"; echo "|---|---|"
-            for b in $PATCH_BRANCHES; do echo "| \`$b\` (rebase) | $(rebase_one "$b") |"; done
-            echo "| \`$PATCHES_BRANCH\` (merge \`$tag\` in) | $(merge_combined) |"
+            for b in $PATCH_BRANCHES; do echo "| \`$b\` (rebase) | $(rebase_one "$b" || true) |"; done
           } > "$RUNNER_TEMP/rebase.md"
+          combined=$(merge_combined || true)   # last, so on success try-combined holds the merge for the tests
+          echo "| \`$PATCHES_BRANCH\` (merge \`$tag\` in) | $combined |" >> "$RUNNER_TEMP/rebase.md"
 
           # 5. Tests: upstream alone, then with our combined patches (only if they rebased cleanly). A failing run is
           #    re-run once and reported "flaky" if the second passes (upstream's suite has known flaky tests).
+          #    Upstream's code runs here, so it runs WITHOUT our token (`env -u`); `gh` keeps it for the report.
           run_tests() {   # $1 = label; current checkout
             log="$RUNNER_TEMP/test-$1.log"
-            if timeout 900 sh -c "$TEST_CMD" >"$log" 2>&1; then echo "pass ($(tail -1 "$log" | tr -d '=' | xargs))"; return; fi
-            first=$(grep -E '^(FAILED|ERROR) ' "$log" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' -)
-            if timeout 900 sh -c "$TEST_CMD" >"$log.2" 2>&1; then echo "flaky: failed once, passed on a re-run (${first:-no test named})"; return; fi
-            echo "FAIL: $(grep -E '^(FAILED|ERROR) ' "$log.2" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' -) ($(tail -1 "$log.2" | tr -d '=' | xargs))"
+            if timeout 600 env -u GH_TOKEN -u GITHUB_TOKEN sh -c "$TEST_CMD" >"$log" 2>&1; then echo "pass ($(tail -1 "$log" | tr -d '=' | xargs))"; return; fi
+            first=$(grep -E '^(FAILED|ERROR) ' "$log" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' - || true)
+            if timeout 600 env -u GH_TOKEN -u GITHUB_TOKEN sh -c "$TEST_CMD" >"$log.2" 2>&1; then echo "flaky: failed once, passed on a re-run (${first:-no test named})"; return; fi
+            echo "FAIL: $(grep -E '^(FAILED|ERROR) ' "$log.2" | head -10 | sed 's/^/`/; s/$/`/' | paste -sd' ' - || true) ($(tail -1 "$log.2" | tr -d '=' | xargs))"
           }
           git checkout -q --detach "$target"; t_up=$(run_tests upstream)
-          if merge_combined >/dev/null; then
-            t_ours=$(run_tests patched)
+          if [ "$combined" = "merges cleanly" ]; then
+            git checkout -q try-combined; t_ours=$(run_tests patched)
           else
             t_ours="not run: \`$PATCHES_BRANCH\` does not merge cleanly"
           fi
@@ -153,8 +171,11 @@ jobs:
             echo "- upstream \`$tag\` alone: $t_up"
             echo "- upstream \`$tag\` + \`$PATCHES_BRANCH\`: $t_ours"
             echo
-            echo "### Upstream release notes"
+            echo "<details><summary>Upstream release notes</summary>"
+            echo
             echo "$notes"
+            echo
+            echo "</details>"
             echo
             echo "---"
             echo "Opened by the upstream-watch workflow ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). It pushed nothing, tagged nothing and opened no PR. Next: rebase the patch branches onto \`$tag\`, merge \`$tag\` into \`$PATCHES_BRANCH\`, bump \`$VERSION_FILE\` to \`$up.1\`, re-run the tests, review."
@@ -167,3 +188,17 @@ jobs:
           gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A newer upstream release to rebase onto" 2>/dev/null || true
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$LABEL" --body-file "$out" \
             || { say "Could not open the issue (are Issues enabled on this fork?)"; exit 1; }
+
+      # 7. Keep the schedule alive. GitHub switches off a public repo's scheduled workflows after 60 days without a
+      #    commit on the default branch, and a patch fork is idle exactly between upstream releases. Enabling the
+      #    workflow through the API every run resets that clock (the approach of keepalive-workflow v2). Runs even when
+      #    the step above stopped early or failed; it only needs `actions: write` on this repo's own workflows.
+      - name: Keep the schedule alive
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          wf="${GITHUB_WORKFLOW_REF%@*}"; wf="${wf##*/}"   # owner/repo/.github/workflows/<file>@ref -> <file>
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable" \
+            || echo "Could not re-enable $wf: run 'gh workflow enable $wf -R $GITHUB_REPOSITORY' by hand" >> "$GITHUB_STEP_SUMMARY"

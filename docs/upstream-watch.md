@@ -20,13 +20,25 @@ a patch fork of nielsfaber/alarmo) is the first. This page is written so that th
    - merges the tag into `PATCHES_BRANCH`. The combined branch is built by merging the patch branches, so a plain
      rebase would flatten those merges and report conflicts that a real update would not have; the workflow
      merges instead.
-   - runs `TEST_CMD` on the upstream tag alone and on the merged combined branch. A failing run is retried once and
-     reported as "flaky" if the retry passes; upstream's suite has a known flaky test.
-6. Opens **one issue** with the label, the upstream release notes, the compare link, the branch table, the two test
-   results and a link to the run.
+   - runs `TEST_CMD` on the upstream tag alone and on the merged combined branch, each run capped at 10 minutes and
+     run without the token (it is upstream's code). A failing run is retried once and reported as "flaky" if the
+     retry passes; upstream's suite has a known flaky test.
+6. Opens **one issue** with the label, the compare link, the branch table, the two test results, a link to the run
+   and the upstream release notes folded under a `<details>` block. The notes are made safe for our repo first: a
+   bare `#123` becomes `nielsfaber/alarmo#123` (otherwise it would link to OUR issue 123), and `@user` mentions are
+   broken with a zero-width space so nobody upstream is notified from the fork.
+7. Re-enables itself through the API at the end of every run, scheduled or manual, even when an earlier step failed
+   (see "The 60-day rule" below).
 
 It **never** pushes, tags, releases or opens a PR. The issue is the trigger for a person or a builder run to do the
-rebase. Permissions are `contents: read` and `issues: write`, using the default `GITHUB_TOKEN` and no secrets.
+rebase. Permissions are `contents: read`, `issues: write` and `actions: write`, using the default `GITHUB_TOKEN` and
+no secrets. `actions: write` is used only by the last step, to re-enable this workflow; on this token it reaches only
+the fork's own Actions (enable/disable workflows, re-run or cancel runs, delete artifacts), never its code or files.
+The checkout keeps no credential in `.git/config` (`persist-credentials: false`; the fork is public), and both actions
+are pinned to a commit SHA.
+
+The ref names it hands to git (the upstream tag, or `upstream_ref`) must look like a plain tag or branch name
+(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`); anything else, such as a value starting with `-`, stops the run.
 
 The manual run takes two inputs:
 
@@ -54,8 +66,19 @@ The manual run takes two inputs:
 
 3. Turn on **Issues** for the fork (forks start with Issues off): `gh repo edit <fork> --enable-issues`.
 4. Turn on Actions for the fork if GitHub asks (Actions tab > "I understand my workflows, go ahead and enable them").
+   **A fork starts with its scheduled workflows off** until Actions is enabled, so this step is what starts the daily
+   run.
 5. Run it once by hand with `upstream_ref` set to upstream's default branch, and read the run summary.
 6. Disable the inherited upstream workflows that publish, release or act on issues (below).
+
+## The 60-day rule
+
+GitHub switches off a public repository's scheduled workflows after 60 days with no activity on the default branch.
+A patch fork is idle exactly between upstream releases, which is when the watch is needed. The workflow's last step,
+"Keep the schedule alive", calls `PUT /repos/<fork>/actions/workflows/upstream-watch.yml/enable` on every run, which
+resets that clock without a commit (the approach of keepalive-workflow v2). It runs even when the main step stopped
+early or failed. If it ever cannot (it writes a line to the run summary), or if the workflow was switched off anyway,
+switch it back on by hand: `gh workflow enable upstream-watch.yml -R <fork>`.
 
 ## The workflows ha_alarmo inherited from upstream
 
@@ -82,6 +105,12 @@ Coordinator: `gh workflow disable stale.yaml -R fatherdoctor/ha_alarmo` and `gh 
   reported a false conflict in `alarm_control_panel.py`. That false conflict is why the combined branch is now
   merged instead. The real test command on that run: upstream `main` alone 108 passed; with `patches` merged in, 134
   passed.
+- Re-checked offline on 2026-10-21 after U1-U5, the job script run as it is in the file (with `set -euo pipefail`)
+  and `gh` stubbed, against upstream `main` standing in for a newer release: up to date, older, duplicate title, a
+  newer release (issue body checked), failing tests, flaky tests, a failure with no `FAILED` line, an upstream tag that
+  does not exist (the run now fails at the fetch instead of reporting a false green), and odd ref names from the API
+  and from `upstream_ref` (refused). The stub test command passed only if `GH_TOKEN` and `GITHUB_TOKEN` were unset and
+  `.git/config` held no auth header. The keepalive step was not run offline: it needs the real API.
 
 ### Fable check (UWr, 2026-10-17, against `ci/upstream-watch.yml` at `5660407` / docs at `3f8ac07`)
 
@@ -106,6 +135,7 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   two lines. (a) `persist-credentials: false` on the checkout; the fork is public, so `git fetch origin` needs no
   credential, and `gh` reads `GH_TOKEN`. (b) Run the tests without the token: `timeout 900 env -u GH_TOKEN -u
   GITHUB_TOKEN sh -c "$TEST_CMD"` in both places in `run_tests`. Keep `GH_TOKEN` at step level for `gh`.
+  **Done 2026-10-21 (opus):** `persist-credentials: false`; both test runs use `env -u GH_TOKEN -u GITHUB_TOKEN`; `GH_TOKEN` stays at step level for `gh`.
 - **U2 (operational, the watch switching itself off) scheduled workflows stop on a dormant fork.** GitHub disables a
   public repo's scheduled workflows after 60 days without a commit on the default branch, and forks start with
   scheduled workflows off until Actions is enabled. A patch fork is dormant exactly between upstream releases, so the
@@ -114,6 +144,7 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   the workflow re-enables itself at the end of each run (`gh workflow enable "$GITHUB_WORKFLOW_REF"` or by file name),
   which resets the 60-day clock and needs `actions: write` added to `permissions` (write on the fork's own workflows
   only; state it in the doc). The self-reset is the one that does not depend on a person remembering.
+  **Done 2026-10-21 (opus):** the self re-enable, as its own `if: always()` step with `actions: write`; both facts and the manual fallback are under "Installing it on a fork" and "The 60-day rule".
 - **U3 (correctness of the issue text) upstream's release notes are pasted raw.** Two effects on our issue: a bare
   `#1234` in upstream's notes autolinks to OUR issue or PR 1234, not upstream's, and any `@user` in the notes notifies
   that user from our repo. Rewrite `#N` to `nielsfaber/alarmo#N` (one `sed -E 's/(^|[^A-Za-z0-9\/])#([0-9]+)/\1'"$UPSTREAM_REPO"'#\2/g'`,
@@ -121,6 +152,7 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   GitHub renders, or put the notes in a fenced block), then fold the notes into `<details><summary>Upstream release notes</summary>` so the branch table and
   test lines stay above the fold. Also take the 20,000-character cut in jq (`.body // "" | .[:20000]`) instead of
   `head -c`, which can split a multibyte character and give `gh` an invalid body.
+  **Done 2026-10-21 (opus), with one change:** the `#N` sed as given used `/` as its delimiter, which breaks on `nielsfaber/alarmo`; it uses `%` instead, and also skips a `#` right after `&` so HTML entities (upstream's own, or the `&#8203;` the mention break adds) are never turned into issue links. Notes are folded under `<details>`; the cut is `.[:20000]` in jq.
 - **U4 (defense in depth) validate the ref names you pass to git.** `tag` comes from upstream's API and `INPUT_REF`
   from the dispatch form; both go to `git fetch upstream "$x"` as a bare argument, where a value starting with `-` is
   parsed as an option (`--upload-pack=` runs a command). Whether GitHub lets a release carry such a tag name is not
@@ -129,6 +161,7 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   ran the script outside Actions, where `-e` is not implied, and there a failed `git fetch upstream "$tag"` leaves
   `FETCH_HEAD` pointing at the earlier `origin` fetch of `patches`, so every branch "applies cleanly" against itself
   and the report is a false green. In Actions `-e` already turns that into a failed run; say so in the file.
+  **Done 2026-10-21 (opus):** `check_ref` on both the API tag and `upstream_ref`; `set -euo pipefail` with a comment on why. The `grep` pipelines in `run_tests` gained `|| true` so a test log without a `FAILED` line cannot end the run under pipefail.
 - **U5 (small)** (a) `timeout-minutes: 30` against up to four 15-minute test runs (two labels, one retry each): a hung
   suite kills the job before the report and the summary; set the job to 75 or the per-run timeout to 600. (b) The
   dedupe only sees issues that still carry the label; a person who removes the label gets a new issue the next
@@ -136,3 +169,4 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   (c) `merge_combined` runs twice (the table, then the tests); harmless, but the second call could reuse
   `try-combined` from the first. (d) The third-party actions are pinned to major tags (`@v4`, `@v6`); with the token
   this narrow that is acceptable, a SHA pin is the stricter habit for anything that later gains a secret.
+  **Done 2026-10-21 (opus):** (a) per-run timeout 600 s, job 60 min; (b) the dedupe lists by `--state all --limit 1000` without the label, exact title match kept; (c) `merge_combined` runs once and the tests check out its `try-combined`; (d) `actions/checkout` pinned to v4.2.2 `11bd719`, `setup-uv` to v6.8.0 `d0cc045`.
