@@ -170,3 +170,20 @@ pipefail` on line one gives `-euo pipefail` in Actions; the analysis below assum
   `try-combined` from the first. (d) The third-party actions are pinned to major tags (`@v4`, `@v6`); with the token
   this narrow that is acceptable, a SHA pin is the stricter habit for anything that later gains a secret.
   **Done 2026-10-21 (opus):** (a) per-run timeout 600 s, job 60 min; (b) the dedupe lists by `--state all --limit 1000` without the label, exact title match kept; (c) `merge_combined` runs once and the tests check out its `try-combined`; (d) `actions/checkout` pinned to v4.2.2 `11bd719`, `setup-uv` to v6.8.0 `d0cc045`.
+
+### Fable diff-only check (UW.1c, 2026-10-21, `eea7428..1426cd1`)
+
+Verdict: **PASS**, patch level, no new round. U1-U5 are enacted as marked above. Checked in the diff and the surrounding
+code: `persist-credentials: false` with both test runs under `env -u GH_TOKEN -u GITHUB_TOKEN` and `GH_TOKEN` still at
+step level for `gh`; the keepalive step is its own `if: always()` step, `actions: write` is the only added permission,
+`${GITHUB_WORKFLOW_REF%@*}` then `##*/` yields the workflow file name for `PUT .../actions/workflows/<file>/enable`, and
+its failure writes to the summary instead of failing the run; the `#N` rewrite uses `%` as the sed delimiter (the repo
+name holds `/`), its class excludes `&` so `&#39;`-style entities stay, `\1`/`\2` and the literal `#` are right for
+`sed -E`, and it runs before the mention break so the added `&#8203;` is never touched; the cut is `.[:20000]` in jq;
+`check_ref` guards both the API tag and `upstream_ref`; under `set -euo pipefail` every command substitution that can
+fail is guarded (`rebase_one`/`merge_combined` with `|| true`, the `grep` pipelines in `run_tests` with `|| true`), the
+`if timeout ...` tests are exempt by construction, a missing upstream ref now fails at the fetch, and `merge_combined`
+runs once and leaves `try-combined` merged for the patched test run; the dedupe lists without the label on the exact
+title; the pins match the tags (`git ls-remote`: `actions/checkout` v4.2.2 = `11bd719`, `astral-sh/setup-uv` v6.8.0 =
+`d0cc045`). Nothing newly broken found. The keepalive's clock reset is as documented by keepalive-workflow v2 and was
+not exercised offline, as the re-check note says.
