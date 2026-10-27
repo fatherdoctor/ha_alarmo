@@ -57,6 +57,12 @@ async def _settle(hass: Any) -> None:
     await hass.async_block_till_done()
 
 
+async def _cleanup_after_pending(hass: Any) -> None:
+    """Run out the entry delay, then the trigger time it starts (two timers)."""
+    await cleanup_timers(hass)
+    await cleanup_timers(hass)
+
+
 async def _arm(hass: Any, mode: str = "away") -> None:
     await hass.services.async_call(
         "alarmo",
@@ -122,7 +128,7 @@ async def test_arm_while_pending_raises(
 
         assert_alarm_state(hass, ALARM_ENTITY, "pending")
         assert [e.data["reason"] for e in events] == ["not_allowed"]
-        await cleanup_timers(hass)
+        await _cleanup_after_pending(hass)
 
 
 @pytest.mark.asyncio
@@ -213,3 +219,52 @@ async def test_successful_arm_still_returns_normally(
         assert_alarm_state(hass, ALARM_ENTITY, "arming")
         assert events == []
         await cleanup_timers(hass)
+
+
+@pytest.mark.asyncio
+async def test_core_service_from_pending_raises_over_websocket(
+    hass: Any, enable_custom_integrations: Any, hass_ws_client: Any
+) -> None:
+    """The staging case end to end: a WebSocket alarm_arm_home while pending fails."""
+    events, storage, entry = await _setup(hass, "refuse_pending_ws")
+    with patch_alarmo_integration_dependencies(storage):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        hass.states.async_set(DOOR, "off")
+        await hass.async_block_till_done()
+
+        await _arm(hass, "away")
+        await advance_time(hass, EXIT_TIME + 1)
+        hass.states.async_set(DOOR, "on")
+        await _settle(hass)
+        assert_alarm_state(hass, ALARM_ENTITY, "pending")
+
+        # the core service with blocking=True, as a script or REST call runs it
+        with pytest.raises(ServiceValidationError, match="pending"):
+            await hass.services.async_call(
+                "alarm_control_panel",
+                "alarm_arm_home",
+                {"entity_id": ALARM_ENTITY, "code": CODE},
+                blocking=True,
+            )
+
+        # the same call as the frontend sends it
+        client = await hass_ws_client(hass)
+        await client.send_json_auto_id(
+            {
+                "type": "call_service",
+                "domain": "alarm_control_panel",
+                "service": "alarm_arm_home",
+                "service_data": {"code": CODE},
+                "target": {"entity_id": ALARM_ENTITY},
+            }
+        )
+        msg = await client.receive_json()
+        assert msg["success"] is False
+        assert msg["error"]["code"] == "service_validation_error"
+        assert "pending" in msg["error"]["message"]
+        await hass.async_block_till_done()
+
+        assert_alarm_state(hass, ALARM_ENTITY, "pending")
+        assert [e.data["reason"] for e in events] == ["not_allowed"] * 2
+        await _cleanup_after_pending(hass)
