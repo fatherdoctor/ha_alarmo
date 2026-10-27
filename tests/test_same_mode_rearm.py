@@ -277,3 +277,24 @@ async def test_same_mode_arm_on_master_rejoins(
         assert hass.states.get(ALARM_ENTITY).attributes["bypassed_sensors"] is None
         assert hass.states.get(MASTER_ENTITY).attributes["bypassed_sensors"] is None
         await cleanup_timers(hass)
+
+
+@pytest.mark.asyncio
+async def test_unbypass_on_master_refuses_when_disarmed(
+    hass: Any, enable_custom_integrations: Any
+) -> None:
+    """alarmo.unbypass on a disarmed master entity raises and changes nothing."""
+    storage, entry = _setup(hass, "unbypass_master_disarmed", master=True)
+    with patch_alarmo_integration_dependencies(storage):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        with pytest.raises(ServiceValidationError, match="must be armed"):
+            await hass.services.async_call(
+                "alarmo",
+                "unbypass",
+                {"entity_id": MASTER_ENTITY},
+                blocking=True,
+            )
+        assert_alarm_state(hass, MASTER_ENTITY, "disarmed")
+        assert_alarm_state(hass, ALARM_ENTITY, "disarmed")
+        await cleanup_timers(hass)
