@@ -1,4 +1,4 @@
-# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "refuse-raises-error":
 #   a refused arm command is logged here instead of raising out of the MQTT callback.
 """Class to handle MQTT integration."""
 

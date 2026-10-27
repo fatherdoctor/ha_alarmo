@@ -1,4 +1,4 @@
-# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "refuse-raises-error":
 #   a refused arm command raises ServiceValidationError instead of returning quietly.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
 #   a same-mode arm re-watches closed bypassed sensors; alarmo.unbypass.

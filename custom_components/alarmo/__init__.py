@@ -1,4 +1,4 @@
-# Modified by the ha_alarmo fork (Apache-2.0 section 4b), patch "refuse-raises-error":
+# ha_alarmo fork change (Apache-2.0 section 4b), patch "refuse-raises-error":
 #   a refused arm from a push action is logged instead of raising out of the listener.
 """The Alarmo Integration."""
 
