@@ -19,7 +19,8 @@ Only in `patches` (where the five meet): a refused `alarmo.unbypass` fires `not_
 same-mode arm whose bypassed sensors are all still open fires `already_armed`. `manifest.json` version is `1.10.19.1`.
 
 Tests: each patch adds one file under `tests/` in upstream's style; `tests/test_patches_combined.py` walks all five
-together. `uv run pytest tests` passes 134 tests on this branch (108 upstream + 26).
+together. `uv run pytest tests` passes 139 tests on this branch (108 upstream + 31; `tests/test_review_cases.py` holds
+the AF1ar review cases).
 
 Dev checks (DEVELOPMENT.md: `uv run pre-commit run --all-files`, `uv run pytest tests`): every patch branch and this
 branch pass on the files they touch; the only hook failure is upstream's own (ruff-format on two v1.10.19 test files).

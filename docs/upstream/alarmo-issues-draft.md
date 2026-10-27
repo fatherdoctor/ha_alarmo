@@ -172,3 +172,11 @@ Fix
 
 Fixes #<n>
 ~~~~
+
+Lines for the PR bodies (from the AF1ar review, 2026-10-18), added to the Fix part of the matching PR:
+
+- Patch 2 (`same-mode-rearm`): "A rejoin re-dispatches the ARM event with delay 0, so with MQTT enabled the
+  event topic publishes ARM_<MODE> again while already armed; alarmo_command_success carries `rejoined`. Happy
+  to use a separate event instead if you prefer."
+- Patch 4 (`skip-delay-refuses-in-pending`): "Only en.json's skip_delay description is updated; I left the
+  other languages to your usual translation flow."
