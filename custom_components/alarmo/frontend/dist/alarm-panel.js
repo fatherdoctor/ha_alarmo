@@ -2092,7 +2092,7 @@ const qs=2;class Ps{constructor(e){}get _$AU(){return this._$AM._$AU}_$AT(e,a,i)
 
                   <alarmo-duration-picker
                     .hass=${this.hass}
-                    max="60"
+                    max="300"
                     step="5"
                     placeholder="-"
                     ?disabled=${!ms(this.data.delay_on)}
