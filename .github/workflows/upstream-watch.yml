@@ -21,6 +21,10 @@ on:
         type: boolean
         required: false
         default: false
+      test_branch:
+        description: "Also run the tests on this one patch branch, rebased (e.g. refuse-raises-error). Empty = none."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -62,6 +66,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_REF: ${{ inputs.upstream_ref }}
           INPUT_DRY: ${{ inputs.dry_run }}
+          INPUT_BRANCH: ${{ inputs.test_branch }}
+          EVENT: ${{ github.event_name }}
         run: |
           # Explicit errexit: Actions already runs this as `bash -e`, but a run outside Actions (the offline check)
           # does not, and there a failed `git fetch upstream` would leave FETCH_HEAD on our own branch: a false green.
@@ -72,6 +78,11 @@ jobs:
           # A ref name from upstream's API or the dispatch form goes to git as a bare argument: refuse anything that
           # could be read as an option (a leading `-`) or is not a plain tag/branch name.
           check_ref() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { say "Refusing odd ref name '$1'"; exit 1; }; }
+          # test_branch must be one of our own patch branches (never an arbitrary ref).
+          if [ -n "${INPUT_BRANCH:-}" ]; then
+            ok=""; for b in $PATCH_BRANCHES; do if [ "$b" = "$INPUT_BRANCH" ]; then ok=1; fi; done
+            [ -n "$ok" ] || { say "test_branch '$INPUT_BRANCH' is not one of: $PATCH_BRANCHES"; exit 1; }
+          fi
 
           # 1. Our base version: the patches branch's version minus the fork's own trailing number.
           git fetch -q origin "$PATCHES_BRANCH" $PATCH_BRANCHES || { say "Cannot fetch our branches"; exit 1; }
@@ -157,6 +168,14 @@ jobs:
           else
             t_ours="not run: \`$PATCHES_BRANCH\` does not merge cleanly"
           fi
+          t_one=""
+          if [ -n "${INPUT_BRANCH:-}" ]; then   # the one branch alone, rebased onto the target
+            if git checkout -q -B "one-$INPUT_BRANCH" "origin/$INPUT_BRANCH" && git rebase -q "$target" >/dev/null 2>&1; then
+              t_one=$(run_tests "one-$INPUT_BRANCH")
+            else
+              git rebase --abort >/dev/null 2>&1 || true; t_one="not run: does not rebase cleanly"
+            fi
+          fi
 
           # 6. The report.
           {
@@ -170,6 +189,7 @@ jobs:
             echo "### Tests (\`$TEST_CMD\`)"
             echo "- upstream \`$tag\` alone: $t_up"
             echo "- upstream \`$tag\` + \`$PATCHES_BRANCH\`: $t_ours"
+            if [ -n "$t_one" ]; then echo "- upstream \`$tag\` + \`$INPUT_BRANCH\` alone: $t_one"; fi
             echo
             echo "<details><summary>Upstream release notes</summary>"
             echo
@@ -181,13 +201,36 @@ jobs:
             echo "Opened by the upstream-watch workflow ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). It pushed nothing, tagged nothing and opened no PR. Next: rebase the patch branches onto \`$tag\`, merge \`$tag\` into \`$PATCHES_BRANCH\`, bump \`$VERSION_FILE\` to \`$up.1\`, re-run the tests, review."
           } > "$out"
           cat "$out" >> "$GITHUB_STEP_SUMMARY"
+          # The report also goes to the log (readable through the API: `gh run view --log`) and is uploaded as the
+          # `upstream-watch-report` artifact by the next step - the summary page alone is not readable by a script.
+          echo "----- report -----"; cat "$out"; echo "----- end of report -----"
+
+          # Verdict: anything that is not a clean result. A manual run FAILS on it, so its green means green.
+          # A scheduled run stays green and says it in the issue (the issue is the trigger; no failure email).
+          problems=""
+          grep -q "CONFLICTS" "$RUNNER_TEMP/rebase.md" && problems="$problems conflicts;"
+          for r in "$t_up" "$t_ours" "$t_one"; do
+            case "$r" in FAIL*|"not run"*) problems="$problems tests: ${r%%(*};";; esac
+          done
+          if [ -n "$problems" ]; then say "Result: NOT CLEAN -$problems"; else say "Result: clean."; fi
 
           if [ "${INPUT_DRY:-false}" = "true" ] || [ -n "${INPUT_REF:-}" ]; then
-            say "Dry run or manual ref: no issue opened."; exit 0
+            say "Dry run or manual ref: no issue opened."
+            if [ -n "$problems" ] && [ "${EVENT:-}" = "workflow_dispatch" ]; then exit 1; fi
+            exit 0
           fi
           gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A newer upstream release to rebase onto" 2>/dev/null || true
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$LABEL" --body-file "$out" \
             || { say "Could not open the issue (are Issues enabled on this fork?)"; exit 1; }
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: upstream-watch-report
+          path: ${{ runner.temp }}/report.md
+          if-no-files-found: ignore
+          retention-days: 30
 
       # 7. Keep the schedule alive. GitHub switches off a public repo's scheduled workflows after 60 days without a
       #    commit on the default branch, and a patch fork is idle exactly between upstream releases. Enabling the

@@ -45,6 +45,15 @@ The manual run takes two inputs:
 - `upstream_ref`: test against any upstream tag or branch (for example `main`) without waiting for a release. The
   result goes to the run summary only, and no issue is opened.
 - `dry_run`: report in the run summary only, with no issue opened.
+- `test_branch` (added 2026-10-29): also run the tests on one patch branch alone, rebased onto the target (it must
+  be one of `PATCH_BRANCHES`). Use it to check a single fix before its upstream PR.
+
+**Reading the result (2026-10-29):** the report is in the run summary, in the step log between `----- report -----`
+and `----- end of report -----` (`gh run view <id> --log`), and in the `upstream-watch-report` artifact
+(`gh run download <id> -n upstream-watch-report`). The last line says `Result: clean.` or `Result: NOT CLEAN - ...`.
+A **manual** run that is not clean (a conflict, a FAIL, or tests not run) ends **failed**, so a green manual run means
+green. A scheduled run stays green and puts the same result in its issue (no failure email for a run whose job is to
+open that issue). Before 2026-10-29 the report reached the summary page only and every run ended green.
 
 ## Installing it on a fork
 
