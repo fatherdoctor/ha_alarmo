@@ -24,7 +24,7 @@ the AF1ar review cases).
 
 Dev checks (DEVELOPMENT.md: `uv run pre-commit run --all-files`, `uv run pytest tests`): every patch branch and this
 branch pass on the files they touch; the only hook failure is upstream's own (ruff-format on two v1.10.19 test files).
-Results and the draft upstream issues (not posted): `docs/upstream/alarmo-issues-draft.md`.
+Upstream issue drafts are kept privately by the owner.
 
 Not changed: the domain (`alarmo`), the frontend bundle, the storage format (one new optional key,
 `mode_switch_instant`, which upstream ignores), MQTT topics and payloads.
