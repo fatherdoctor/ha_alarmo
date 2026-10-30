@@ -1,7 +1,16 @@
-# Draft upstream issues for nielsfaber/alarmo - NOT POSTED
+# Draft upstream issues for nielsfaber/alarmo
 
-Status: DRAFT v2 (2026-10-16), shortened after studying how issues in this repo turned into merged PRs.
-Nothing is posted until David decides; posting comes after the patches run on staging and in the house.
+Status (2026-10-29): **1 POSTED as [nielsfaber/alarmo#1509](https://github.com/nielsfaber/alarmo/issues/1509)** by the
+owner, with HA 2026.10.2, the skip_delay precedent and a continue_on_error line added (text below is what was posted).
+**2 RETIRED - do not post:** the maintainer declined un-bypassing twice -
+[#1386](https://github.com/nielsfaber/alarmo/issues/1386) ("I dont want to offer functions for un-bypassing sensors",
+closed not planned 2026-03-30) and PR [#1388](https://github.com/nielsfaber/alarmo/pull/1388) (bypass is for a faulty
+sensor, "standard practice that a sensor will remain bypassed until the next arming cycle"; no manual un-bypass
+either). His suggested alternative, the sensor option "Allow open initially", covers the use case without a patch;
+the owner's house is moving to it. `same-mode-rearm` stays on the fork only. Next to post: 5 (without its
+already_armed half depending on 2 - it stands alone), then 4, then 3. 3, 4 and 5 unchanged since DRAFT v2 (2026-10-16).
+Before any PR: rebase the branch onto upstream main (it moved: #1493 changed mqtt.py, #1508) and rerun the tests.
+Nothing is posted until the owner decides; the owner posts.
 
 ## What worked upstream (8 issue -> merged PR pairs, 2025-11 to 2026-09)
 
@@ -20,11 +29,11 @@ Pairs studied: #1434/#1463, #1429/#1459, #1450/#1454, #1366/#1455, #1447/#1456, 
   tighten security rather than weaken it, which helps, but expect the "is this intended?" question on 2 and 4.
 - PR #1306 already tried to fix the flaky test we hit, and it is still flaky. Issue 6 now says so.
 
-Post one issue per patch, no umbrella, one or two at a time: 1, 5, 2, 4, 3. When the maintainer is open to
+Post one issue per patch, no umbrella, one or two at a time: 1 (posted), 5, 4, 3 (2 retired). When the maintainer is open to
 it, open the PR with "Fixes #n" in the Description / Fix shape (example at the end).
 
 Before posting:
-- The branch links need the fork to be public. Otherwise drop them; "I have a fix with tests" is enough.
+- The fork is public, so the branch links work.
 - Tick the template checklist honestly: search open and closed issues first, and be on the latest release.
 - Fill in `<HA version>`.
 
@@ -34,18 +43,19 @@ two stock v1.10.19 test files, which we left alone.
 
 ---
 
-## 1. Bug form
+## 1. Bug form - POSTED as #1509 (2026-10-29)
 
 Title: Refused arm command returns normally, so scripts carry on
 
 ~~~~
-Alarmo Version: 1.10.19
-HA Version: <HA version>
+Alarmo Version: v1.10.19
+HA Version: 2026.10.2
 
 Bug description:
 When an arm is refused because the area is pending, arming or triggered, Alarmo logs a warning and fires
 alarmo_failed_to_arm, but the service call itself succeeds. A script carries on as if the arm worked and the
-UI shows nothing. I'd expect a ServiceValidationError, like other refused service calls in HA.
+UI shows nothing. I'd expect a ServiceValidationError, as alarmo.skip_delay already raises when it's refused.
+Scripts that should carry on anyway can set continue_on_error.
 
 I have a fix with tests (raise after the event; the MQTT and notification-action handlers catch it and only
 log) and can open a PR: https://github.com/fatherdoctor/ha_alarmo/tree/refuse-raises-error
@@ -60,7 +70,7 @@ Relevant log output:
 Cannot go to state armed_home from state pending.
 ~~~~
 
-## 2. Feature request
+## 2. Feature request - RETIRED (declined upstream as #1386 / #1388; see the status above)
 
 Title: Re-arming the same mode should re-watch bypassed sensors that have closed
 
