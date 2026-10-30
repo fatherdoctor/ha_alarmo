@@ -1,6 +1,6 @@
 # ha_alarmo: changes to upstream Alarmo
 
-This branch (`patches`) is upstream [nielsfaber/alarmo](https://github.com/nielsfaber/alarmo) **v1.10.19** plus the
+This branch (`patches`) is upstream [nielsfaber/alarmo](https://github.com/nielsfaber/alarmo) **main at c6bb13a** (v1.10.19 plus #1493 and #1508) plus the
 five patches below, versioned `1.10.19.1` (upstream version + a fourth number). It is licensed like upstream, under the
 Apache License 2.0 (see `LICENSE`). As section 4(b) of that license asks, every modified source file carries a change
 note at the top; the JSON files (which cannot hold comments) are listed here.
@@ -19,7 +19,7 @@ Only in `patches` (where the five meet): a refused `alarmo.unbypass` fires `not_
 same-mode arm whose bypassed sensors are all still open fires `already_armed`. `manifest.json` version is `1.10.19.1`.
 
 Tests: each patch adds one file under `tests/` in upstream's style; `tests/test_patches_combined.py` walks all five
-together. `uv run pytest tests` passes 139 tests on this branch (108 upstream + 31; `tests/test_review_cases.py` holds
+together. `uv run pytest tests` passes 158 tests on this branch (127 upstream + 31; `tests/test_review_cases.py` holds
 the AF1ar review cases).
 
 Dev checks (DEVELOPMENT.md: `uv run pre-commit run --all-files`, `uv run pytest tests`): every patch branch and this
