@@ -69,7 +69,7 @@ open that issue). Before 2026-10-29 the report reached the summary page only and
    | `PATCHES_BRANCH` | `patches` | the combined branch; its version file names our base |
    | `VERSION_FILE` | `custom_components/alarmo/manifest.json` | a JSON file with a `version` field |
    | `BASE_PARTS` | `3` | how many numbers of our version are upstream's (`1.10.19.1` -> 3) |
-   | `PATCH_BRANCHES` | the five patch branches | space-separated, each rebased alone |
+   | `PATCH_BRANCHES` | the four patch branches (`same-mode-rearm` was dropped in 1.10.19.2 and is kept as history only) | space-separated, each rebased alone |
    | `TEST_CMD` | `uv run --frozen pytest -q -p no:cacheprovider tests` | upstream's own test command |
    | `LABEL` | `upstream-release` | created on the first run if it is missing |
 
