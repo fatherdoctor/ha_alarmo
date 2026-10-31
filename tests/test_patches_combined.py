@@ -1,5 +1,5 @@
 # ha_alarmo fork (Apache-2.0 section 4b), combined branch "patches": new test file.
-"""Test the behavior that exists only when all five patches are combined."""
+"""Test the four patches together (same-mode-rearm was dropped in 1.10.19.2)."""
 
 from typing import Any
 
@@ -60,7 +60,7 @@ async def _call(hass: Any, service: str, **data: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_combined_refusals_all_report(
+async def test_combined_refusals_all_report(  # noqa: PLR0915
     hass: Any, enable_custom_integrations: Any
 ) -> None:
     """Walk one evening through every refusal path and check each one reports."""
@@ -73,20 +73,11 @@ async def test_combined_refusals_all_report(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        # unbypass while disarmed: raises and reports
-        with pytest.raises(ServiceValidationError):
-            await _call(hass, "unbypass")
-        await _settle(hass)
-        assert [(e.data["reason"], e.data["command"]) for e in failed] == [
-            ("not_allowed", "unbypass")
-        ]
-        failed.clear()
-
         # arm away with the back door open: it is bypassed after the exit delay
         hass.states.async_set(DOOR, "on")
         await _settle(hass)
         await _call(hass, "arm", code=CODE, mode="away")
-        # an arm during the countdown is refused loudly (patch 1)
+        # an arm during the countdown is refused loudly (refuse-raises-error)
         with pytest.raises(ServiceValidationError):
             await _call(hass, "arm", code=CODE, mode="home")
         await _settle(hass)
@@ -101,22 +92,39 @@ async def test_combined_refusals_all_report(
         assert [e.data["reason"] for e in failed] == ["already_armed"]
         failed.clear()
 
-        # door closed, same mode again: rejoined (patch 2), success event
+        # door closed, same mode again: still ignored and reported (the
+        #   same-mode-rearm patch was dropped); the door stays bypassed
         hass.states.async_set(DOOR, "off")
         await _settle(hass)
         success.clear()
         await _call(hass, "arm", code=CODE, mode="away")
-        assert failed == []
-        assert [e.data.get("rejoined") for e in success] == [[DOOR]]
+        assert [e.data["reason"] for e in failed] == ["already_armed"]
+        assert success == []
+        assert hass.states.get(ALARM_ENTITY).attributes["bypassed_sensors"] == [DOOR]
+        failed.clear()
 
-        # mode switch is instant (patch 3) and the door stays live
+        # mode switch is instant (mode-switch-instant); upstream keeps a bypass
+        #   until disarm, so the door stays bypassed through the switch
         await _call(hass, "arm", code=CODE, mode="home")
         assert_alarm_state(hass, ALARM_ENTITY, "armed_home")
+        assert hass.states.get(ALARM_ENTITY).attributes["bypassed_sensors"] == [DOOR]
+        hass.states.async_set(DOOR, "on")
+        await _settle(hass)
+        assert_alarm_state(hass, ALARM_ENTITY, "armed_home")
+
+        # disarm and arm again with the door closed: the door is watched
+        await _call(hass, "disarm", code=CODE)
+        hass.states.async_set(DOOR, "off")
+        await _settle(hass)
+        await _call(hass, "arm", code=CODE, mode="home")
+        await advance_time(hass, EXIT_TIME + 1)
+        assert_alarm_state(hass, ALARM_ENTITY, "armed_home")
+        assert not hass.states.get(ALARM_ENTITY).attributes["bypassed_sensors"]
         hass.states.async_set(DOOR, "on")
         await _settle(hass)
         assert_alarm_state(hass, ALARM_ENTITY, "pending")
 
-        # skip_delay in the entry delay refuses (patch 4) and reports (patch 5)
+        # skip_delay in the entry delay refuses and reports (the last two patches)
         with pytest.raises(ServiceValidationError):
             await _call(hass, "skip_delay")
         await _settle(hass)

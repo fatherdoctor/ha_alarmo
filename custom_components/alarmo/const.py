@@ -1,11 +1,7 @@
-# ha_alarmo fork change (Apache-2.0 section 4b), patch "same-mode-rearm":
-#   the alarmo.unbypass service.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "mode-switch-instant":
 #   the mode_switch_instant option.
 # ha_alarmo fork change (Apache-2.0 section 4b), patch "failed-to-arm-every-refusal":
 #   EVENT_COMMAND_IGNORED and COMMAND_SKIP_DELAY.
-# ha_alarmo fork change (Apache-2.0 section 4b), combined branch "patches":
-#   COMMAND_UNBYPASS.
 """Store constants."""
 
 import datetime
@@ -85,7 +81,6 @@ COMMAND_ARM_CUSTOM_BYPASS = "arm_custom_bypass"
 COMMAND_ARM_VACATION = "arm_vacation"
 COMMAND_DISARM = "disarm"
 COMMAND_SKIP_DELAY = "skip_delay"
-COMMAND_UNBYPASS = "unbypass"
 
 COMMANDS = [
     COMMAND_DISARM,
@@ -188,7 +183,6 @@ MODES_TO_SUPPORTED_FEATURES = {
 SERVICE_ARM = "arm"
 SERVICE_DISARM = "disarm"
 SERVICE_SKIP_DELAY = "skip_delay"
-SERVICE_UNBYPASS = "unbypass"
 
 CONF_ALARM_ARMED_AWAY = "armed_away"
 CONF_ALARM_ARMED_CUSTOM_BYPASS = "armed_custom_bypass"
@@ -235,13 +229,6 @@ SERVICE_DISARM_SCHEMA = cv.make_entity_service_schema(
 SERVICE_SKIP_DELAY_SCHEMA = cv.make_entity_service_schema(
     {
         vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-    }
-)
-
-SERVICE_UNBYPASS_SCHEMA = cv.make_entity_service_schema(
-    {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-        vol.Optional("sensors"): cv.entity_ids,
     }
 )
 

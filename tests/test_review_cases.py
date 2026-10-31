@@ -1,5 +1,5 @@
 # ha_alarmo fork (Apache-2.0 section 4b), combined branch "patches": new test file.
-"""Review cases for the five patches.
+"""Review cases for the patches (same-mode-rearm dropped in 1.10.19.2).
 
 Master entity, unavailable sensor, option off, redundant disarm (AF1ar review).
 """
@@ -117,7 +117,7 @@ async def test_master_refusals_raise_and_report(
 async def test_unavailable_bypassed_sensor_stays_bypassed(
     hass: Any, enable_custom_integrations: Any
 ):
-    """An unavailable bypassed sensor is not rejoined by a same-mode arm or unbypass."""
+    """An unavailable bypassed sensor stays bypassed on a same-mode arm."""
     storage, entry = _setup(hass, "rv_unavail", exit_time=0)
     failed: list[Event] = []
     hass.bus.async_listen("alarmo_failed_to_arm", failed.append)
@@ -135,14 +135,6 @@ async def test_unavailable_bypassed_sensor_stays_bypassed(
         assert_alarm_state(hass, AREA, "armed_away")
         assert hass.states.get(AREA).attributes["bypassed_sensors"] == [DOOR]
         assert [e.data["reason"] for e in failed] == ["already_armed"]
-        resp = await hass.services.async_call(
-            "alarmo",
-            "unbypass",
-            {"entity_id": AREA, "sensors": ["binary_sensor.nope"]},
-            blocking=True,
-            return_response=True,
-        )
-        assert resp[AREA] == {"rejoined": [], "still_bypassed": [DOOR]}
         await cleanup_timers(hass)
 
 
