@@ -1,5 +1,8 @@
 # Alarmo
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+> This is a fork of [nielsfaber/alarmo](https://github.com/nielsfaber/alarmo) (Apache-2.0) carrying four small patches: instant mode switch, refusals raise errors, every refusal reports failed-to-arm, and skip-delay refuses in pending. They are combined on the [`patches`](https://github.com/fatherdoctor/ha_alarmo/tree/patches) branch. It is not in the HACS default store; install upstream unless you want these. Upstream is watched daily ([details](docs/upstream-watch.md)).
 
 This is an alarm system integration for Home Assistant. It provides a user interface for setting up your own alarm system completely from the browser.
 
@@ -838,6 +841,8 @@ Want to contribute? See the [Development](./DEVELOPMENT.md) documentation for se
 
 
 ## Say thank you
+*These donation links go to the upstream author, not to this fork.*
+
 If you want to make donation as appreciation of my work, you can do so via PayPal or buy me a coffee. Thank you!
 
 <a href="https://www.paypal.com/donate/?business=CLL4T6Y8ACXNN&no_recurring=0&item_name=Thank+you+for+supporting+my+work+on+the+Alarmo+project%2E+Your+donation+is+much+appreciated%21&currency_code=EUR" target="_blank"><img src="https://pics.paypal.com/00/s/YzlhMzI2ZjYtZDQxMi00NzNiLThmZTktOTk3MmEyYTA2Zjc0/file.PNG" width="150" /></a>
