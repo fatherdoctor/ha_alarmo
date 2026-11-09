@@ -12,7 +12,7 @@ Set up once: `uv sync` (needs `uv` 0.8+; it fetches the pinned Python 3.13).
 - Test: `uv run pytest -q` - green is `N passed`.
 - Lint: `uv run ruff check .` - prints `All checks passed!`.
 - Frontend: sources are in `custom_components/alarmo/frontend/src`; see `DEVELOPMENT.md` for its build.
-- A live alarm panel, the box or real sensors are never exercised from a cloud session.
+- A live alarm panel, a running installation or real sensors are never exercised from a cloud session.
 
 ## Layout
 
