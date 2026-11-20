@@ -107,9 +107,27 @@ jobs:
           up="${tag#"$TAG_PREFIX"}"
           say "Our patches ($PATCHES_BRANCH) are version $ours, built on upstream $base. Upstream: $tag."
 
+          # A watch that cannot fire must fail, not stay green. The base is cut from our own version, so a version
+          # that is not upstream's plus one more number (a typo, or a version line of our own) gives a base that is no
+          # upstream release, and every run would say "Up to date". Refuse a base that is not a version number, is not
+          # an upstream release tag, or sorts after upstream's latest release.
+          [[ "$base" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { say "Base '$base' (from version '$ours' in $VERSION_FILE) is not a version number: this watch cannot fire."; exit 1; }
+          # git ls-remote --exit-code returns 2 only when the tag is missing; any other failure (network, GitHub) gets
+          # its own message, so the run does not blame the base for an outage.
+          rc=0
+          git ls-remote --exit-code --tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$TAG_PREFIX$base" >/dev/null || rc=$?
+          if [ "$rc" = 2 ]; then
+            say "Base $base (from version $ours in $VERSION_FILE) is not an upstream release tag ($TAG_PREFIX$base): this watch cannot fire."; exit 1
+          elif [ "$rc" != 0 ]; then
+            say "Could not read upstream tags (git ls-remote exit $rc): this run cannot check the base. Try again later."; exit 1
+          fi
           if [ -z "${INPUT_REF:-}" ]; then
             newest=$(printf '%s\n%s\n' "$base" "$up" | sort -V | tail -1)
-            if [ "$up" = "$base" ] || [ "$newest" = "$base" ]; then say "Up to date: nothing to do."; exit 0; fi
+            if [ "$up" = "$base" ]; then say "Up to date: nothing to do."; exit 0; fi
+            if [ "$newest" = "$base" ]; then
+              say "Base $base (from version $ours in $VERSION_FILE) sorts after upstream's latest release $tag: this watch cannot fire. Set the version on $PATCHES_BRANCH to the upstream release plus one more number."
+              exit 1
+            fi
           fi
           title="Upstream $tag released - rebase patches"
 
